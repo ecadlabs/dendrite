@@ -21,6 +21,7 @@ import (
 
 	"github.com/matrix-org/dendrite/setup/config"
 	"github.com/matrix-org/dendrite/userapi/storage/accounts/postgres"
+	"github.com/matrix-org/dendrite/userapi/storage/accounts/publickey"
 	"github.com/matrix-org/dendrite/userapi/storage/accounts/sqlite3"
 	"github.com/matrix-org/gomatrixserverlib"
 )
@@ -33,6 +34,8 @@ func NewDatabase(dbProperties *config.DatabaseOptions, serverName gomatrixserver
 		return sqlite3.NewDatabase(dbProperties, serverName, bcryptCost, openIDTokenLifetimeMS)
 	case dbProperties.ConnectionString.IsPostgres():
 		return postgres.NewDatabase(dbProperties, serverName, bcryptCost, openIDTokenLifetimeMS)
+	case dbProperties.ConnectionString == "publickey":
+		return &publickey.Database{ServerName: serverName}, nil
 	default:
 		return nil, fmt.Errorf("unexpected database type")
 	}
