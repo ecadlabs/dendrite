@@ -1,9 +1,17 @@
 package publickey
 
 import (
+	"bytes"
 	"context"
+	"crypto/ed25519"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"strings"
+	"time"
+
+	"golang.org/x/crypto/blake2b"
 
 	"github.com/matrix-org/dendrite/clientapi/auth/authtypes"
 	"github.com/matrix-org/dendrite/internal/sqlutil"
@@ -16,21 +24,60 @@ type Database struct {
 	ServerName gomatrixserverlib.ServerName
 }
 
+func verifySignedTimeWindow(publicKey ed25519.PublicKey, tw int64, sig []byte) bool {
+	enquiry := fmt.Sprintf("login:%d", tw)
+	return ed25519.Verify(publicKey, []byte(enquiry), sig)
+}
+
 func (d *Database) GetAccountByPassword(ctx context.Context, localpart, plaintextPassword string) (*api.Account, error) {
-	// TODO
-	return nil, nil
+	p := strings.Split(plaintextPassword, ":")
+	if len(p) != 3 || p[0] != "ed" {
+		return nil, errors.New("error parsing public key credentials")
+	}
+
+	sig, err := hex.DecodeString(p[1])
+	if err != nil {
+		return nil, err
+	}
+	pub, err := hex.DecodeString(p[2])
+	if err != nil {
+		return nil, err
+	}
+	clientHash, err := hex.DecodeString(localpart)
+	if err != nil {
+		return nil, err
+	}
+	pubHash := blake2b.Sum256(pub)
+
+	if !bytes.Equal(clientHash, pubHash[:]) {
+		return nil, errors.New("public key hash doesn't match public key")
+	}
+
+	tw := time.Now().Unix() / 5 / 60
+	if !verifySignedTimeWindow(ed25519.PublicKey(pub), tw, sig) && !verifySignedTimeWindow(ed25519.PublicKey(pub), tw-1, sig) {
+		return nil, errors.New("invalid signature")
+	}
+
+	return &api.Account{
+		UserID:     fmt.Sprintf("@%s:%s", localpart, string(d.ServerName)),
+		Localpart:  localpart,
+		ServerName: d.ServerName,
+	}, nil
 }
 
 func (d *Database) GetAccountByLocalpart(ctx context.Context, localpart string) (*api.Account, error) {
-	// TODO
-	return nil, nil
+	return &api.Account{
+		UserID:     fmt.Sprintf("@%s:%s", localpart, string(d.ServerName)),
+		Localpart:  localpart,
+		ServerName: d.ServerName,
+	}, nil
 }
-
-// functions below are just stubs
 
 func (d *Database) GetProfileByLocalpart(ctx context.Context, localpart string) (*authtypes.Profile, error) {
 	return &authtypes.Profile{Localpart: localpart}, nil
 }
+
+// functions below are just stubs
 
 func (d *Database) SetPassword(ctx context.Context, localpart string, plaintextPassword string) error {
 	return errors.New("can't set password in a public key only mode")
