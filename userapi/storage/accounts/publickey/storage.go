@@ -26,7 +26,8 @@ type Database struct {
 
 func verifySignedTimeWindow(publicKey ed25519.PublicKey, tw int64, sig []byte) bool {
 	enquiry := fmt.Sprintf("login:%d", tw)
-	return ed25519.Verify(publicKey, []byte(enquiry), sig)
+	digest := blake2b.Sum256([]byte(enquiry))
+	return ed25519.Verify(publicKey, digest[:], sig)
 }
 
 func (d *Database) GetAccountByPassword(ctx context.Context, localpart, plaintextPassword string) (*api.Account, error) {
@@ -48,12 +49,11 @@ func (d *Database) GetAccountByPassword(ctx context.Context, localpart, plaintex
 		return nil, err
 	}
 	pubHash := blake2b.Sum256(pub)
-
 	if !bytes.Equal(clientHash, pubHash[:]) {
 		return nil, errors.New("public key hash doesn't match public key")
 	}
 
-	tw := time.Now().Unix() / 5 / 60
+	tw := time.Now().Unix() / (5 * 60)
 	if !verifySignedTimeWindow(ed25519.PublicKey(pub), tw, sig) && !verifySignedTimeWindow(ed25519.PublicKey(pub), tw-1, sig) {
 		return nil, errors.New("invalid signature")
 	}
